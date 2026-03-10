@@ -5,10 +5,6 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-const authRoutes = require('./routes/auth');
-const botRoutes = require('./routes/bots');
-const statsRoutes = require('./routes/stats');
-
 const app = express();
 
 // Middlewares
@@ -25,6 +21,33 @@ function parseAllowedOrigins() {
 
 const allowedOrigins = parseAllowedOrigins();
 
+const MONGO_URI = process.env.MONGO_URI;
+
+let mongoConnPromise = null;
+async function connectMongoOnce() {
+  if (mongoose.connection.readyState === 1) return;
+  if (!mongoConnPromise) {
+    mongoConnPromise = mongoose.connect(MONGO_URI);
+  }
+  await mongoConnPromise;
+}
+
+// Asegura MongoDB antes de manejar cualquier request (Vercel/serverless friendly)
+app.use(async (req, res, next) => {
+  try {
+    await connectMongoOnce();
+    return next();
+  } catch (error) {
+    console.error('Error al conectar a MongoDB:', error);
+    return res.status(500).json({ message: 'Error conectando a la base de datos.' });
+  }
+});
+
+// Rutas (se montan después de asegurar la conexión)
+const authRoutes = require('./routes/auth');
+const botRoutes = require('./routes/bots');
+const statsRoutes = require('./routes/stats');
+
 app.use(
   cors({
     origin(origin, callback) {
@@ -37,35 +60,12 @@ app.use(
   })
 );
 
-// Rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/bots', botRoutes);
 app.use('/api/stats', statsRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'Bot Market API funcionando' });
-});
-
-const MONGO_URI = process.env.MONGO_URI;
-
-let mongoConnPromise = null;
-async function connectMongoOnce() {
-  if (mongoose.connection.readyState === 1) return;
-  if (!mongoConnPromise) {
-    mongoConnPromise = mongoose.connect(MONGO_URI);
-  }
-  await mongoConnPromise;
-}
-
-// Asegura MongoDB antes de manejar requests (Vercel/serverless friendly)
-app.use(async (req, res, next) => {
-  try {
-    await connectMongoOnce();
-    return next();
-  } catch (error) {
-    console.error('Error al conectar a MongoDB:', error);
-    return res.status(500).json({ message: 'Error conectando a la base de datos.' });
-  }
 });
 
 // Solo levantar servidor en local (no en Vercel)
