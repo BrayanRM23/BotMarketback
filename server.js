@@ -12,13 +12,27 @@ const statsRoutes = require('./routes/stats');
 const app = express();
 
 // Middlewares
+app.set('trust proxy', 1);
 app.use(express.json());
 
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+function parseAllowedOrigins() {
+  const raw = process.env.CLIENT_URL || 'http://localhost:5173';
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const allowedOrigins = parseAllowedOrigins();
 
 app.use(
   cors({
-    origin: clientUrl,
+    origin(origin, callback) {
+      // Allow same-origin / server-to-server / curl (no Origin header)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error(`CORS bloqueado para el origen: ${origin}`));
+    },
     credentials: true,
   })
 );
@@ -32,20 +46,43 @@ app.get('/', (req, res) => {
   res.json({ message: 'Bot Market API funcionando' });
 });
 
-// Conexión a MongoDB y arranque del servidor
-const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 
-mongoose
-  .connect(MONGO_URI)
-  .then(() => {
-    console.log('Conectado a MongoDB');
-    app.listen(PORT, () => {
-      console.log(`Servidor escuchando en el puerto ${PORT}`);
-    });
-  })
-  .catch((error) => {
+let mongoConnPromise = null;
+async function connectMongoOnce() {
+  if (mongoose.connection.readyState === 1) return;
+  if (!mongoConnPromise) {
+    mongoConnPromise = mongoose.connect(MONGO_URI);
+  }
+  await mongoConnPromise;
+}
+
+// Asegura MongoDB antes de manejar requests (Vercel/serverless friendly)
+app.use(async (req, res, next) => {
+  try {
+    await connectMongoOnce();
+    return next();
+  } catch (error) {
     console.error('Error al conectar a MongoDB:', error);
-    process.exit(1);
-  });
+    return res.status(500).json({ message: 'Error conectando a la base de datos.' });
+  }
+});
+
+// Solo levantar servidor en local (no en Vercel)
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 5000;
+  connectMongoOnce()
+    .then(() => {
+      console.log('Conectado a MongoDB');
+      app.listen(PORT, () => {
+        console.log(`Servidor escuchando en el puerto ${PORT}`);
+      });
+    })
+    .catch((error) => {
+      console.error('Error al conectar a MongoDB:', error);
+      process.exit(1);
+    });
+}
+
+module.exports = app;
 
