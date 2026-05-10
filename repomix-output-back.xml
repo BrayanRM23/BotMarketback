@@ -1,0 +1,624 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.gitignore
+api/index.js
+middleware/authMiddleware.js
+models/Bot.js
+models/User.js
+package.json
+routes/auth.js
+routes/bots.js
+routes/stats.js
+server.js
+vercel.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".gitignore">
+node_modules/
+.env
+dist/
+build/
+CLAUDE.md
+</file>
+
+<file path="api/index.js">
+const app = require('../server');
+
+module.exports = app;
+</file>
+
+<file path="middleware/authMiddleware.js">
+const jwt = require('jsonwebtoken');
+
+// Helper to extract token from cookies without extra libraries
+function getTokenFromRequest(req) {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+
+  const cookies = cookieHeader.split(';').map((c) => c.trim());
+  const tokenCookie = cookies.find((c) => c.startsWith('token='));
+  if (!tokenCookie) return null;
+
+  const token = tokenCookie.split('=')[1];
+  return decodeURIComponent(token);
+}
+
+function authMiddleware(req, res, next) {
+  try {
+    const token = getTokenFromRequest(req);
+
+    if (!token) {
+      return res.status(401).json({ message: 'No autorizado. Token no proporcionado.' });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      fullName: decoded.fullName,
+    };
+
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Token inválido o expirado.' });
+  }
+}
+
+module.exports = authMiddleware;
+</file>
+
+<file path="models/Bot.js">
+const mongoose = require('mongoose');
+
+const botSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      default: '',
+    },
+    totalConversations: {
+      type: Number,
+      default: 0,
+    },
+    mostAskedQuestions: {
+      type: [String],
+      default: [],
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+module.exports = mongoose.model('Bot', botSchema);
+</file>
+
+<file path="models/User.js">
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema(
+  {
+    fullName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    phone: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+    password: {
+      type: String,
+      required: true,
+      minlength: 6,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+module.exports = mongoose.model('User', userSchema);
+</file>
+
+<file path="package.json">
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@google/genai": "^1.44.0",
+    "@google/generative-ai": "^0.24.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.2.4"
+  }
+}
+</file>
+
+<file path="routes/auth.js">
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const authMiddleware = require('../middleware/authMiddleware');
+
+const router = express.Router();
+
+// Helper to send JWT in httpOnly cookie
+function sendToken(res, user) {
+  const payload = {
+    id: user._id,
+    email: user.email,
+    fullName: user.fullName,
+  };
+
+  const token = jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: '7d',
+  });
+
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+}
+
+// Register
+router.post('/register', async (req, res) => {
+  try {
+    const { fullName, phone, email, password, confirmPassword } = req.body;
+
+    if (!fullName || !phone || !email || !password || !confirmPassword) {
+      return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: 'Las contraseñas no coinciden.' });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Ya existe un usuario con este email.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      fullName,
+      phone,
+      email,
+      password: hashedPassword,
+    });
+
+    sendToken(res, user);
+
+    return res.status(201).json({
+      user: {
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+      },
+    });
+  } catch (error) {
+    console.error('Error en registro:', error);
+    return res.status(500).json({ message: 'Error en el servidor durante el registro.' });
+  }
+});
+
+// Login
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email y contraseña son obligatorios.' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: 'Credenciales inválidas.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Credenciales inválidas.' });
+    }
+
+    sendToken(res, user);
+
+    return res.json({
+      user: {
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+      },
+    });
+  } catch (error) {
+    console.error('Error en login:', error);
+    return res.status(500).json({ message: 'Error en el servidor durante el login.' });
+  }
+});
+
+// Obtener usuario actual
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    return res.json({ user });
+  } catch (error) {
+    console.error('Error en /me:', error);
+    return res.status(500).json({ message: 'Error en el servidor.' });
+  }
+});
+
+// Logout
+router.post('/logout', (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  res.cookie('token', '', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    expires: new Date(0),
+  });
+
+  return res.json({ message: 'Sesión cerrada correctamente.' });
+});
+
+module.exports = router;
+</file>
+
+<file path="routes/bots.js">
+const express = require('express');
+const { GoogleGenAI } = require('@google/genai');
+const Bot = require('../models/Bot');
+const authMiddleware = require('../middleware/authMiddleware');
+
+const router = express.Router();
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+// Crear nuevo bot (protegido)
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: 'El nombre del bot es obligatorio.' });
+    }
+
+    const bot = await Bot.create({
+      user: req.user.id,
+      name,
+      description: description || '',
+    });
+
+    return res.status(201).json({ bot });
+  } catch (error) {
+    console.error('Error al crear bot:', error);
+    return res.status(500).json({ message: 'Error en el servidor al crear el bot.' });
+  }
+});
+
+// Listar bots del usuario actual (protegido)
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const bots = await Bot.find({ user: req.user.id }).sort({ createdAt: -1 });
+    return res.json({ bots });
+  } catch (error) {
+    console.error('Error al obtener bots:', error);
+    return res.status(500).json({ message: 'Error en el servidor al obtener los bots.' });
+  }
+});
+
+// Obtener un bot específico para editar (protegido)
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const bot = await Bot.findOne({ _id: req.params.id, user: req.user.id });
+    if (!bot) {
+      return res.status(404).json({ message: 'Bot no encontrado.' });
+    }
+    return res.json({ bot });
+  } catch (error) {
+    console.error('Error al obtener bot:', error);
+    return res.status(500).json({ message: 'Error en el servidor al obtener el bot.' });
+  }
+});
+
+// Actualizar un bot (protegido)
+router.put('/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    const bot = await Bot.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
+      { name, description },
+      { new: true }
+    );
+
+    if (!bot) {
+      return res.status(404).json({ message: 'Bot no encontrado.' });
+    }
+
+    return res.json({ bot });
+  } catch (error) {
+    console.error('Error al actualizar bot:', error);
+    return res.status(500).json({ message: 'Error en el servidor al actualizar el bot.' });
+  }
+});
+
+// Endpoint público para obtener info básica del bot por id (para /chat/:botId)
+router.get('/public/:id', async (req, res) => {
+  try {
+    const bot = await Bot.findById(req.params.id).select('name description createdAt');
+    if (!bot) {
+      return res.status(404).json({ message: 'Bot no encontrado.' });
+    }
+    return res.json({ bot });
+  } catch (error) {
+    console.error('Error en endpoint público de bot:', error);
+    return res.status(500).json({ message: 'Error en el servidor.' });
+  }
+});
+
+// Chat con el bot (público): recibe mensaje, devuelve respuesta con Gemini usando el contexto del bot
+router.post('/:id/chat', async (req, res) => {
+  try {
+    const bot = await Bot.findById(req.params.id).select('name description');
+    if (!bot) {
+      return res.status(404).json({ message: 'Bot no encontrado.' });
+    }
+
+    const { message } = req.body;
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ message: 'El mensaje es obligatorio.' });
+    }
+
+    const context = (bot.description || '').trim();
+    const systemPrompt = context
+      ? `Eres el asistente "${bot.name}". Actúa según esta base de conocimiento:\n\n${context}\n\nResponde siempre en el mismo idioma que el usuario, de forma clara y útil.`
+      : `Eres el asistente "${bot.name}". Responde de forma clara y útil en el mismo idioma que el usuario.`;
+
+    const fullPrompt = `${systemPrompt}\n\n---\nUsuario: ${message.trim()}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: fullPrompt,
+    });
+
+    const text = response?.text ?? response?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    if (!text) {
+      return res.status(502).json({ message: 'No se pudo generar una respuesta.' });
+    }
+
+    await Bot.findByIdAndUpdate(req.params.id, { $inc: { totalConversations: 1 } });
+
+    return res.json({ reply: text.trim() });
+  } catch (error) {
+    console.error('Error en chat del bot:', error);
+    return res.status(500).json({
+      message: error?.message?.includes('API key') ? 'Configura GEMINI_API_KEY en el servidor.' : 'Error al generar la respuesta.',
+    });
+  }
+});
+
+module.exports = router;
+</file>
+
+<file path="routes/stats.js">
+const express = require('express');
+const Bot = require('../models/Bot');
+const authMiddleware = require('../middleware/authMiddleware');
+
+const router = express.Router();
+
+// Estadísticas del dashboard (protegido)
+router.get('/overview', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const bots = await Bot.find({ user: userId });
+    const totalBots = bots.length;
+    const totalConversations = bots.reduce((acc, bot) => acc + (bot.totalConversations || 0), 0);
+
+    // Por ahora devolvemos datos dummy para "most asked questions"
+    const topQuestions = [
+      { question: '¿Cómo puedo integrar este bot en mi web?', count: 24 },
+      { question: '¿Qué modelo de IA utiliza?', count: 18 },
+      { question: '¿Puedo personalizar las respuestas?', count: 15 },
+      { question: '¿Cómo entreno el bot con mis datos?', count: 12 },
+      { question: '¿Tiene límite de conversaciones?', count: 9 },
+    ];
+
+    return res.json({
+      totalBots,
+      totalConversations,
+      topQuestions,
+    });
+  } catch (error) {
+    console.error('Error al obtener estadísticas:', error);
+    return res.status(500).json({ message: 'Error en el servidor al obtener estadísticas.' });
+  }
+});
+
+module.exports = router;
+</file>
+
+<file path="vercel.json">
+{
+  "version": 2,
+  "builds": [{ "src": "api/index.js", "use": "@vercel/node" }],
+  "routes": [{ "src": "/(.*)", "dest": "api/index.js" }]
+}
+</file>
+
+<file path="server.js">
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const dotenv = require('dotenv');
+
+dotenv.config();
+
+const app = express();
+
+// Middlewares
+app.set('trust proxy', 1);
+app.use(express.json());
+
+function parseAllowedOrigins() {
+  const raw = process.env.CLIENT_URL || 'http://localhost:5173';
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const allowedOrigins = parseAllowedOrigins();
+
+const MONGO_URI = process.env.MONGO_URI;
+
+let mongoConnPromise = null;
+async function connectMongoOnce() {
+  if (mongoose.connection.readyState === 1) return;
+  if (!mongoConnPromise) {
+    mongoConnPromise = mongoose.connect(MONGO_URI);
+  }
+  await mongoConnPromise;
+}
+
+// Asegura MongoDB antes de manejar cualquier request (Vercel/serverless friendly)
+app.use(async (req, res, next) => {
+  try {
+    await connectMongoOnce();
+    return next();
+  } catch (error) {
+    console.error('Error al conectar a MongoDB:', error);
+    return res.status(500).json({ message: 'Error conectando a la base de datos.' });
+  }
+});
+
+// Rutas (se montan después de asegurar la conexión)
+const authRoutes = require('./routes/auth');
+const botRoutes = require('./routes/bots');
+const statsRoutes = require('./routes/stats');
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Allow same-origin / server-to-server / curl (no Origin header)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error(`CORS bloqueado para el origen: ${origin}`));
+    },
+    credentials: true,
+  })
+);
+
+app.use('/api/auth', authRoutes);
+app.use('/api/bots', botRoutes);
+app.use('/api/stats', statsRoutes);
+
+app.get('/', (req, res) => {
+  res.json({ message: 'Bot Market API funcionando' });
+});
+
+// Solo levantar servidor en local (no en Vercel)
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 5000;
+  connectMongoOnce()
+    .then(() => {
+      console.log('Conectado a MongoDB');
+      app.listen(PORT, () => {
+        console.log(`Servidor escuchando en el puerto ${PORT}`);
+      });
+    })
+    .catch((error) => {
+      console.error('Error al conectar a MongoDB:', error);
+      process.exit(1);
+    });
+}
+
+module.exports = app;
+</file>
+
+</files>

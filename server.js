@@ -47,6 +47,7 @@ app.use(async (req, res, next) => {
 const authRoutes = require('./routes/auth');
 const botRoutes = require('./routes/bots');
 const statsRoutes = require('./routes/stats');
+const calendarRoutes = require('./routes/calendar');
 
 app.use(
   cors({
@@ -63,6 +64,7 @@ app.use(
 app.use('/api/auth', authRoutes);
 app.use('/api/bots', botRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/calendar', calendarRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'Bot Market API funcionando' });
