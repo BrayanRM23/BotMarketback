@@ -461,7 +461,7 @@ router.post('/:id/chat', async (req, res) => {
     const fullPrompt = `${systemPrompt}\n\n---\nUsuario: ${message.trim()}`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: fullPrompt,
     });
 
