@@ -54,7 +54,23 @@ const botSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    // Tono del asistente. Vacío en bots anteriores: entonces solo aplica lo que diga la descripción.
+    tone: {
+      type: String,
+      enum: ['', 'formal', 'amable', 'cercano', 'directo'],
+      default: '',
+    },
+    toneNotes: {
+      type: String,
+      default: '',
+      maxlength: 500,
+    },
     totalConversations: {
+      type: Number,
+      default: 0,
+    },
+    // Documentos indexados (estado 'ready') en Supabase. Si es 0, el chat no consulta RAG.
+    knowledgeDocCount: {
       type: Number,
       default: 0,
     },

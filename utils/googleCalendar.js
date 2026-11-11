@@ -93,23 +93,45 @@ async function listEvents(auth, calendarId, timeMin, timeMax, maxResults = 10) {
   }));
 }
 
+// Si se pasa `id` y el evento ya existe (409), se devuelve el existente en vez de fallar
 async function createEvent(auth, calendarId, eventData) {
   const calendar = google.calendar({ version: 'v3', auth });
-  const res = await calendar.events.insert({
-    calendarId,
-    requestBody: {
-      summary: eventData.summary,
-      description: eventData.description || '',
-      start: { dateTime: toRFC3339(eventData.startDateTime), timeZone: eventData.timeZone || 'UTC' },
-      end: { dateTime: toRFC3339(eventData.endDateTime), timeZone: eventData.timeZone || 'UTC' },
-    },
-  });
+  const requestBody = {
+    ...(eventData.id && { id: eventData.id }),
+    summary: eventData.summary,
+    description: eventData.description || '',
+    start: { dateTime: toRFC3339(eventData.startDateTime), timeZone: eventData.timeZone || 'UTC' },
+    end: { dateTime: toRFC3339(eventData.endDateTime), timeZone: eventData.timeZone || 'UTC' },
+  };
+
+  let data;
+  let alreadyExisted = false;
+  try {
+    ({ data } = await calendar.events.insert({ calendarId, requestBody }));
+  } catch (error) {
+    if (!eventData.id || error.code !== 409) throw error;
+    ({ data } = await calendar.events.get({ calendarId, eventId: eventData.id }));
+    alreadyExisted = true;
+
+    // Google conserva los eventos borrados como 'cancelled': si el usuario vuelve a pedir
+    // ese horario, hay que restaurarlo en vez de reportarlo como creado.
+    if (data.status === 'cancelled') {
+      ({ data } = await calendar.events.patch({
+        calendarId,
+        eventId: eventData.id,
+        requestBody: { ...requestBody, id: undefined, status: 'confirmed' },
+      }));
+      alreadyExisted = false;
+    }
+  }
+
   return {
-    id: res.data.id,
-    summary: res.data.summary,
-    start: res.data.start?.dateTime,
-    end: res.data.end?.dateTime,
-    htmlLink: res.data.htmlLink,
+    id: data.id,
+    summary: data.summary,
+    start: data.start?.dateTime,
+    end: data.end?.dateTime,
+    htmlLink: data.htmlLink,
+    alreadyExisted,
   };
 }
 
@@ -137,10 +159,18 @@ async function updateEvent(auth, calendarId, eventId, updates) {
   };
 }
 
+// 404/410 significa que el evento ya no existe: se considera borrado
 async function deleteEvent(auth, calendarId, eventId) {
   const calendar = google.calendar({ version: 'v3', auth });
-  await calendar.events.delete({ calendarId, eventId });
-  return { deleted: true, eventId };
+  try {
+    await calendar.events.delete({ calendarId, eventId });
+  } catch (error) {
+    if (error.code === 404 || error.code === 410) {
+      return { deleted: true, eventId, alreadyDeleted: true };
+    }
+    throw error;
+  }
+  return { deleted: true, eventId, alreadyDeleted: false };
 }
 
 module.exports = {
