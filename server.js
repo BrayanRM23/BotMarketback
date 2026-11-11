@@ -46,6 +46,7 @@ app.use(async (req, res, next) => {
 // Rutas (se montan después de asegurar la conexión)
 const authRoutes = require('./routes/auth');
 const botRoutes = require('./routes/bots');
+const documentRoutes = require('./routes/documents');
 const statsRoutes = require('./routes/stats');
 const calendarRoutes = require('./routes/calendar');
 
@@ -63,6 +64,7 @@ app.use(
 
 app.use('/api/auth', authRoutes);
 app.use('/api/bots', botRoutes);
+app.use('/api/bots', documentRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/calendar', calendarRoutes);
 
